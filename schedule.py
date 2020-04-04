@@ -7,30 +7,39 @@ import os
 user_name = 'Kevin Mathews'
 
 # data cleaning dictionary
-clean_dict = {'[Exams]':[['Start','mmmdd'],['End','mmmdd']],
+clean_dict = {'[Alerts]':[['Start','mmmdd'],['End','mmmdd']],
+              '[Exams]':[['Start','mmmdd'],['End','mmmdd']],
               '[Homework]':[['Start','mmmdd'],['End','mmmdd']],
               '[Reading]':[['Start','mmmdd'],['End','mmmdd']],
-              '[Events]':[['Day','mmmdd'],['Time','time']],
+              '[Events]':[['Day','weekday'],['Time','time']], # gen_date_string_yymmdd, mmmdd
               '[Tasks]':[['Start','mmmdd'],['End','mmmdd']],}
 
 #data_folder = r'C:\Users\zbdxwr\Stuff\Product_Eng\Workspace\schedule_data\Schedule\\'
-data_folder = os.getcwd() + '/Schedule/'
+#data_folder = os.getcwd() + '//'
+data_folder = '/'.join(os.path.abspath(__file__).split('/')[:~0]) + '//' # location of python file
 
-tomorrow_file = '0.0_Tomorrowpad.txt'
-tomorrow_folder = os.getcwd()
+#tomorrow_file = '0.0_Tomorrowpad.txt'
+summary_file = 'summary.txt'
+tomorrow_file = 'tomorrow_pad.txt'
+tomorrow_folder = data_folder
+#tomorrow_folder = os.getcwd() + '/Notes/Schedule/'
 
 # function to print available commands
 def print_commands():
 	print('\nAvaliable Commands:')
 	print('functions: print_normal(), print_school(), print_data(df_name), terminate_prog()')
-	print('data: df_dict, processed_dict, tomorrowpad_dict, available_dfs, get_raw_data(df_name), tomorrowpad_keys()')
+	print('data: df_dict, processed_dict, tomorrowpad_dict, available_dfs, get_raw_data(df_name), tomorrowpad_keys(), write_sorted_data()')
 
 # clear interpereter
 clear = lambda: os.system('clear')
 
+# generate table string
+def table_string(df, format_str='plain'):
+    return tabulate(df, showindex=False, tablefmt=format_str)
+
 # print dataframe using tabulate
-def table_print(df, format_str='plain'):
-    print(tabulate(df, showindex=False, tablefmt=format_str))
+def table_print(df):
+    print(table_string(df))
 
 # function to clear and end program
 def terminate_prog():
@@ -44,10 +53,9 @@ def current_date():
 
 current_date_str = current_date()
 
-def print_date(append_string = '', user_name=user_name):
-    now = datetime.datetime.now() - datetime.timedelta(hours=5)
-
-    weekday = now.strftime("%w")
+# function to generate weekday string
+def gen_date_string(date_obj):
+    weekday = date_obj.strftime("%w")
 
     weekday_dict = {'0':'Sunday',
 					'1':'Monday',
@@ -57,13 +65,26 @@ def print_date(append_string = '', user_name=user_name):
 					'5':'Friday',
 					'6':'Saturday'}
 
-    out_string = weekday_dict.get(weekday) + now.strftime(", %B %d %Y %H:%M")
-    out_string = out_string + append_string
+    out_string = ''
+    out_string += weekday_dict.get(weekday) + date_obj.strftime(", %B %d %Y %H:%M")
+    return out_string
 
-    print('\nSchedule Assistant for ' + user_name + ':')
-    print('-' * len(out_string))
+# function to generate weekday string
+def gen_date_string_yymmdd(date_str):
+    date_obj = datetime.datetime.strptime(date_str, '%y%m%d')
+    return gen_date_string(date_obj)[:~5]
+
+def print_date_string(append_string = '', user_name=user_name):
+    now = datetime.datetime.now() - datetime.timedelta(hours=5)
+    out_string = gen_date_string(now)
+    out_string += append_string
+    out_string = '-'*len(out_string) + '\n' + out_string + '\n' + '-'*len(out_string)
+    return out_string
+
+def print_date(append_string = '', user_name=user_name):
+    out_string = print_date_string(append_string)
+    out_string = 'Schedule Assistant for ' + user_name + ':' + '\n' + out_string
     print(out_string)
-    print('-' * len(out_string))
 
 # generate finalized dataframe (scheduled tasks)
 def print_scheduled(text_file, df_name):
@@ -136,7 +157,7 @@ def load_tomorrowpad(text_file):
 
     return tomorrow_dict
 
-tomorrowpad_dict = load_tomorrowpad(tomorrow_folder + '/' + tomorrow_file)
+tomorrowpad_dict = load_tomorrowpad(tomorrow_folder + tomorrow_file)
 
 # print today's tomorrowpad
 def print_tomorrowpad(current_date_str=current_date_str, tomorrowpad_dict=tomorrowpad_dict):
@@ -144,6 +165,8 @@ def print_tomorrowpad(current_date_str=current_date_str, tomorrowpad_dict=tomorr
 
     if output_df is None:
         output_df = pd.DataFrame(['None'])
+    else:
+        output_df = ' - ' + output_df
 
     return output_df
 
@@ -160,12 +183,28 @@ def print_birthdays(text_file, df_name, current_date_str=current_date_str):
     # get 30 day threshold
     threshold_date_str = threshold_date(current_date_str, 30)
 
+    # get 15 day previous threshold
+    previous_date_str = threshold_date(current_date_str, -15)
+
     # sort df to next month of birthdays
-    data_mid = df[(df['Day']>current_date_str) & (df['Day']<threshold_date_str)].copy()
+    df = df[(df['Day']>previous_date_str) & (df['Day']<threshold_date_str)].copy()
 
-    data_mid['Day'] = data_mid['Day'].apply(date_mmmdd)
+    #data_mid['Day'] = data_mid['Day'].apply(date_mmmdd)
 
-    return data_mid
+    # add flag column
+    flag_series = df.apply(add_flag_custom, axis=1)
+    df.insert(0, 'Flag', pd.DataFrame(flag_series))
+    df.sort_values('Flag', ascending=False, inplace=True)
+
+    # convert flag column
+    df['Flag'] = df['Flag'].astype(str)
+    df['Flag'] = df['Flag'].str.replace('3','Past')
+    df['Flag'] = df['Flag'].str.replace('2','TODAY!')
+    df['Flag'] = df['Flag'].str.replace('1','')
+
+    df['Day'] = df['Day'].apply(gen_date_string_yymmdd)
+
+    return df
 
 # generate finalized dataframe (normal structure)
 def print_standard(text_file, df_name):
@@ -184,6 +223,9 @@ def load_data(folder_name):
 
     text_file_list = os.listdir(folder_name)
     text_file_list = [i for i in text_file_list if '.txt' in i]
+
+    text_file_list.remove(tomorrow_file)
+    text_file_list.remove(summary_file)
     df_dict = {}
     for i in text_file_list:
         df_dict[i] = pop_dict(i, data_folder)
@@ -203,8 +245,13 @@ def pop_dict(text_file, data_folder):
 
 # read textfile into list of dataframes
 def read_textfile(data, type='normal'):
+
     # read text data in
     data_list = data.readlines()
+
+    if data_list[~0] == '\n':
+        data_list = data_list[:~0]
+
     data_df = pd.DataFrame(data_list)
 
     # remove carriage returns
@@ -290,6 +337,12 @@ def date_mmddyy(date_text):
     output = str(month_num + "/" + day_num + "/" + year_num)
     return output
 
+# weekday string
+#def date_dd_full(date_text):
+#    dateObj = date_text
+#    output = gen_date_string(dateObj)
+#    return output
+
 # clean six digit date information MMM-DD
 def date_mmmdd(date_text):
     #get numbers
@@ -370,7 +423,7 @@ def process_df(df, df_name):
     df['Flag'] = df['Flag'].astype(str)
     df['Flag'] = df['Flag'].str.replace('3','LATE')
     df['Flag'] = df['Flag'].str.replace('2','!')
-    df['Flag'] = df['Flag'].str.replace('1','')
+    df['Flag'] = df['Flag'].str.replace('1','Inactive')
 
     return df
 
@@ -394,7 +447,7 @@ def sort_df(df, df_name, clean_dict=clean_dict, current_date_str=current_date_st
             df = df[df[cur_col] <= threshold_date_str]
 
     try:
-        df = df.sort_values('Start', ascending=True)
+        df = df.sort_values(['Start','End'], ascending=True)
     except:
         df = df.sort_values('Day', ascending=True)
 
@@ -412,6 +465,8 @@ def clean_df(df, df_name, clean_dict=clean_dict):
             df[cur_col] = df[cur_col].apply(time_string)
         elif cur_func == 'mmmdd':
             df[cur_col] = df[cur_col].apply(date_mmmdd)
+        elif cur_func == 'weekday':
+            df[cur_col] = df[cur_col].apply(gen_date_string_yymmdd)
         else: # apply mmmdd
             df[cur_col] == df[cur_col].apply(date_mmmdd)
 
@@ -420,6 +475,65 @@ def clean_df(df, df_name, clean_dict=clean_dict):
 # Main Loop
 print('loading data...')
 df_dict = load_data(data_folder)
+
+# sort raw data for writing back to notepad
+def sort_data(df_dict=df_dict):
+    # iterate through dictionary
+    #file_list = []
+    sorted_dict={}
+    file_list = df_dict.keys()
+    file_list = [i for i in file_list]
+    file_list.remove('tasks_scheduled.txt')
+    for file_name in file_list:
+        mid_dict = df_dict.get(file_name)
+        #df_list = []
+        new_dict = {}
+        for df_name in mid_dict.keys(): #df_list = iter(mid_dict.keys()):
+            #else:
+            # for each dataframe found, sort according to rules
+            mid_df = mid_dict.get(df_name)
+            #mid_df = mid_df.sort_values(['Done'], ascending=False)
+
+            if df_name == '[Events]':
+                mid_df = mid_df.sort_values(['Done', 'Day'], ascending=True)
+                #print(file_name, df_name, mid_df.columns.values)
+            else:
+                mid_df = mid_df.sort_values(['Done', 'Start', 'End'], ascending=True)
+                #print(file_name, df_name, mid_df.columns.values)
+
+            new_dict[df_name] = mid_df
+            #df_list.append(mid_df)
+
+
+        sorted_dict[file_name] = new_dict
+
+    return sorted_dict
+
+data_sorted = sort_data() # sort raw data for writing back to file
+
+# function to write sorted data to files
+def write_sorted_data(data_sorted=data_sorted):
+    for file_name in data_sorted.keys(): # file name
+        table_df = data_sorted.get(file_name)
+        output_string = ''
+        for df_name in table_df.keys(): # dataframe name
+            mid_df = table_df.get(df_name) # data table
+            col_titles = [i for i in mid_df]
+            output_df = mid_df[col_titles[0]] + ' ' + mid_df[col_titles[1]]
+            # iterate through dataframe columns to create string
+            for i in range(2, len(col_titles)):
+                output_df = output_df + ' ' + mid_df[col_titles[i]]
+                #print(file_name, df_name, len(col_titles))
+
+            #output_df = output_df + '\n'
+            output_string = output_string + df_name + '\n' + ' '.join(col_titles) + '\n'
+            output_string = output_string + '\n'.join(output_df.tolist()) + '\n\n'
+
+            text_file = open(data_folder + file_name, "w")
+            text_file.write(output_string)
+            text_file.close()
+            #print('printed:', file_name)
+    print('data sorted.')
 
 # read df dict for available data
 def get_dfs(df_dict=df_dict):
@@ -436,22 +550,21 @@ available_dfs = get_dfs()
 
 # populate dictionary with processed dataframes
 def pop_processed_dict(available_dfs = available_dfs):
-	df_dict = {}
-	for idx, row in available_dfs.iterrows():
-		df_name = row[0]
-		file_name = row[1]
+    df_dict_new = {}
+    for idx, row in available_dfs.iterrows():
+    	df_name = row[0]
+    	file_name = row[1]
 
-		if df_name == '[Birthdays]':
-			df = print_birthdays(file_name, df_name)
-		elif df_name == '[Daily]':
-			df = 'None'
-			#df = print_standard(file_name, df_name)
-		else:
-			df = print_standard(file_name, df_name)
+    	if df_name == '[Birthdays]':
+    		df = print_birthdays(file_name, df_name)
+    	elif df_name == '[Daily]':
+    		df = 'None'
+    	else:
+    		df = print_standard(file_name, df_name)
 
-		df_dict[df_name] = df
+    	df_dict_new[df_name] = df
 
-	return df_dict
+    return df_dict_new
 
 processed_dict = pop_processed_dict()
 
@@ -480,38 +593,46 @@ def print_data(df_name = '', available_dfs=available_dfs, processed_dict=process
 
 # print normal data
 def print_normal():
-    clear()
+    clear(); print('')
     print_date(' | Normal Tasks:')
-
     print('\nLatest Tomorrowpads: ' + ', '.join(tomorrowpad_keys()[0:5]))
-    print('Today\'s Pad: ' + current_date_str)
-    table_print(print_tomorrowpad())
-
-    print('\nEvents:')
-    table_print(processed_dict.get('[Events]'))
-
-    print('\nTasks:')
-    table_print(processed_dict.get('[Tasks]'))
-
-    print('\nBirthdays:')
-    print(processed_dict.get('[Birthdays]'))
-
+    print('Today\'s Pad: ' + current_date_str); table_print(print_tomorrowpad())
+    print('\nEvents:'); table_print(processed_dict.get('[Events]')[['Day','Time','Item','Flag']])
+    print('\nTasks:'); table_print(processed_dict.get('[Tasks]'))
+    print('\nBirthdays:'); print(processed_dict.get('[Birthdays]')[['Day','Name','Flag']])
     print_commands()
 
 def print_school():
-    clear()
+    clear(); print('')
     print_date(' | School Tasks:')
-
-    print('\nExams:')
-    table_print(processed_dict.get('[Exams]'))
-
-    print('\nHomework:')
-    table_print(processed_dict.get('[Homework]'))
-
-    print('\nReading:')
-    table_print(processed_dict.get('[Reading]'))
-
+    print('\nAlerts:'); table_print(processed_dict.get('[Alerts]'))
+    print('\nExams:'); table_print(processed_dict.get('[Exams]'))
+    print('\nHomework:'); table_print(processed_dict.get('[Homework]'))
+    print('\nReading:'); table_print(processed_dict.get('[Reading]'))
     print_commands()
 
+# generate message for email, write to summary.txt
+def html_message():
+    out_string = 'Schedule Assistant for ' + user_name + ':' + '\n'
+    out_string += '\nLatest Tomorrowpads: ' + ', '.join(tomorrowpad_keys()[0:5])
+    out_string += '\nToday\'s Pad: ' + current_date_str; out_string += '\n' + table_string(print_tomorrowpad())
+
+    out_string += '\n\n' + print_date_string(' | Normal Tasks:') + '\n'
+    out_string += '\nEvents:'; out_string += '\n' + table_string(processed_dict.get('[Events]')[['Day','Time','Item','Flag']])
+    out_string += '\n\nTasks:'; out_string += '\n' + table_string(processed_dict.get('[Tasks]'))
+    out_string += '\n\nBirthdays:'; out_string += '\n' + table_string(processed_dict.get('[Birthdays]')[['Day','Name','Flag']])
+
+    out_string += '\n\n' + print_date_string(' | School Tasks:')
+    out_string += '\n\nAlerts:'; out_string += '\n' + table_string(processed_dict.get('[Alerts]'))
+    out_string += '\n\nExams:'; out_string += '\n' + table_string(processed_dict.get('[Exams]'))
+    out_string += '\n\nHomework:'; out_string += '\n' + table_string(processed_dict.get('[Homework]'))
+    out_string += '\n\nReading:'; out_string += '\n' + table_string(processed_dict.get('[Reading]'))
+
+    writeFile = open('summary.txt', 'w')
+    writeFile.write(out_string)
+    writeFile.close()
+
+# write sorted data
+write_sorted_data()
 # print normal
-print_normal()
+#print_normal()
