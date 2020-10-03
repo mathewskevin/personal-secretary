@@ -30,7 +30,11 @@ def create_table(df, df_name, file_name, date_str):
                        'Birthday Table':['[Scheduled Birthdays]',
                                          '[Scheduled Holidays]'],
                        'Event Table':['[Normal Events]'],
-                       'Weekly Event Table':['[Scheduled Daily]']}
+                       'Weekly Event Table':['[Scheduled Daily]'],
+                       'Small Tasks Table':['[To Do List]',
+                                            '[To Do Alerts]',
+                                            '[To Do Buy]',
+                                            '[To Do Groceries]']}
 
     # detect type of data stored in dataframe
     def detect_table(df_name, table_type_dict=table_type_dict):
@@ -47,54 +51,25 @@ def create_table(df, df_name, file_name, date_str):
     if table_type == 'Normal Table':
         table_obj = normal_table(df, df_name, file_name, date_str)
 
-        # sort for writing later
-        table_obj.sort_data()
-
-        # create human readable data
-        table_obj.filter_data()
-        table_obj.process_data()
-        table_obj.clean_data()
-        table_obj.finalize_data()
+    if table_type == 'Small Tasks Table':
+        table_obj = small_tasks(df, df_name, file_name, date_str)
 
     if table_type == 'Bills Table':
         table_obj = bills_table(df, df_name, file_name, date_str)
 
-        # sort for writing later
-        table_obj.sort_data()
-
     if table_type == 'Birthday Table':
         table_obj = birthday_table(df, df_name, file_name, date_str)
-
-        # sort for writing later
-        table_obj.sort_data()
-
-        # create human readable data
-        table_obj.filter_data(); table_obj.process_data(); table_obj.clean_data(); table_obj.finalize_data()
 
     if table_type == 'Event Table':
         table_obj = event_table(df, df_name, file_name, date_str)
 
-        # sort for writing later
-        table_obj.sort_data()
-
-        # create human readable data
-        table_obj.filter_data(); table_obj.process_data(); table_obj.clean_data(); table_obj.finalize_data()
-
     if table_type == 'Weekly Event Table':
         table_obj = weekly_event_table(df, df_name, file_name, date_str)
-
-        # sort for writing later
-        table_obj.sort_data()
 
     return table_obj
 
 # Table Blueprints
 class tomorrow_pad:
-
-    def __init__(self, tomorrowpad_dict, file_name, date_str):
-        self.dict = tomorrowpad_dict; self.date_str = date_str
-        self.table_type = 'Tomorrowpad'
-        self.file_name = file_name
 
     def padprint(self):
         output_df = self.dict.get(self.date_str)
@@ -107,15 +82,15 @@ class tomorrow_pad:
         return output_df
 
     def padkeys(self):
-        return sorted(self.dict.keys(), reverse=True)        
+        return sorted(self.dict.keys(), reverse=True)
+
+    def __init__(self, tomorrowpad_dict, file_name, date_str):
+        self.dict = tomorrowpad_dict; self.date_str = date_str
+        self.table_type = 'Tomorrowpad'
+        self.file_name = file_name
 
 class normal_table:
 
-    def __init__(self, df, df_name, file_name, date_str):
-        self.df = df; self.df_name = df_name; self.file_name = file_name; self.date_str = date_str
-        self.table_type = 'Normal Table'
-        self.clean_cols = [['Start','mmmdd'],['End','mmmdd']]
-  
     # Step 1
     def sort_data(self):
         self.df_sorted = self.df.sort_values(['Done','Start','End'], ascending=[True, False, False])
@@ -125,7 +100,7 @@ class normal_table:
     # function to filter dataframe to relevant items
     def filter_data(self):
         df = self.df_hr.copy()
-        date_str = self.date_str        
+        date_str = self.date_str
 
         #df = self.df_sorted
         threshold_days = 30
@@ -152,42 +127,27 @@ class normal_table:
         df = self.df_hr.copy()
         date_str = self.date_str
 
-        # add flag column
-        flag_list = []
-        for idx, row in df.iterrows():
-            start_date = row['Start']
-            end_date = row['End']
-
-            if date_str >= start_date and date_str <= end_date:
-                flag_string = 2
-            elif date_str > end_date:
-                flag_string = 3
+        def gen_flag(diff_str, current_date):
+            if diff_str < 0:
+                out_str = 'LATE'
+            elif diff_str == 0:
+                out_str = 'TODAY'
             else:
-                flag_string = 1
+                out_str = ''
 
-            flag_list.append(flag_string)
-
-        flag_series = pd.Series(flag_list, dtype='object')
+            return out_str
 
         df.reset_index(drop=True, inplace=True)
-        df.insert(0, 'Flag', pd.DataFrame(flag_series))
 
-        sort_val = 'Start'
-        df.sort_values(['Flag', sort_val], ascending=[False, True], inplace=True)
-
-        # drop done column
-        df.drop('Done', axis=1, inplace=True)
-
-        # convert flag column
-        df['Flag'] = df['Flag'].astype(str)
-        df['Flag'] = df['Flag'].str.replace('3','LATE')
-        df['Flag'] = df['Flag'].str.replace('2','Active')
-        df['Flag'] = df['Flag'].str.replace('1','Inactive')
+        df.sort_values('Start', ascending=True, inplace=True)
+        df.drop('Done', axis=1, inplace=True) # drop done column
 
         # Unique code for normal events
         df['Diff'] = df['End'].apply(gen_date_difference, args=(date_str,))
+        df['Flag'] = df['Diff'].apply(gen_flag, args=(date_str,))
+        df['Flag'] = df['Flag'].replace('nan','')
 
-        self.df_hr = df.copy()
+        self.df_hr = df.copy()[['Flag','Diff','Start','End','Item']]
 
     # Step 4
     # function to convert dataframe information to human readable format
@@ -213,7 +173,7 @@ class normal_table:
     # check to make sure dataframe is not empty
     def finalize_data(self):
         df = self.df_hr.copy()
-        
+
         if df.shape[0] == 0:
             df = pd.DataFrame(['None'])
         else:
@@ -221,12 +181,54 @@ class normal_table:
 
         self.df_hr = df.copy()
 
-class event_table(normal_table):
+    def __init__(self, df, df_name, file_name, date_str):
+        self.df = df; self.df_name = df_name; self.file_name = file_name; self.date_str = date_str
+        self.table_type = 'Normal Table'
+        self.clean_cols = [['Start','mmmdd'],['End','mmmdd']]
+
+        # sort for writing later
+        self.sort_data()
+
+        # create human readable data
+        self.filter_data()
+        self.process_data()
+        self.clean_data()
+        self.finalize_data()
+
+class small_tasks(normal_table):
+
+    def sort_data(self):
+        self.df_sorted = self.df.sort_values(['Done','Start'], ascending=[True, False])
+        self.df_hr = self.df_sorted.copy()
+
+    def process_data(self):
+        df = self.df_hr.copy()
+        date_str = self.date_str
+        df.reset_index(drop=True, inplace=True)
+
+        df.sort_values('Start', ascending=True, inplace=True)
+        df.drop('Done', axis=1, inplace=True) # drop done column
+
+        # Unique code for normal events
+        df['Diff'] = df['Start'].apply(gen_date_difference, args=(date_str,))
+
+        self.df_hr = df.copy()[['Diff','Start','Item']]
 
     def __init__(self, df, df_name, file_name, date_str):
         self.df = df; self.df_name = df_name; self.file_name = file_name; self.date_str = date_str
-        self.table_type = 'Event Table'
-        self.clean_cols = [['Day','weekday'],['Time','time']]
+        self.table_type = 'Small Tasks Table'
+        self.clean_cols = [['Start','mmmdd']]
+
+        # sort for writing later
+        self.sort_data()
+
+        # create human readable data
+        self.filter_data()
+        self.process_data()
+        self.clean_data()
+        self.finalize_data()
+
+class event_table(normal_table):
 
     def sort_data(self):
         self.df_sorted = self.df.sort_values(['Done','Day'], ascending=[True, False])
@@ -234,11 +236,11 @@ class event_table(normal_table):
 
     def filter_data(self):
         df = self.df_hr.copy()
-        date_str = self.date_str        
+        date_str = self.date_str
         cols = self.clean_cols
 
         threshold_days = 30
-        
+
         # sort to in progress items only
         df = df[df['Done'] == '0']
 
@@ -259,47 +261,43 @@ class event_table(normal_table):
         df = self.df_hr.copy()
         date_str = self.date_str
 
-        # add flag column
-        flag_list = []
-        for idx, row in df.iterrows():
-            start_date = row['Day']
-
-            if date_str == start_date:
-                flag_string = 2
-            elif date_str > start_date:
-                flag_string = 3
+        def gen_flag(diff_str, current_date):
+            if diff_str < 0:
+                out_str = 'LATE'
+            elif diff_str == 0:
+                out_str = 'TODAY'
             else:
-                flag_string = 1
+                out_str = ''
 
-            flag_list.append(flag_string)
-
-        flag_series = pd.Series(flag_list, dtype='object')
+            return out_str
 
         df.reset_index(drop=True, inplace=True)
-        df.insert(0, 'Flag', pd.DataFrame(flag_series))
 
-        sort_val = 'Day'
-        df.sort_values(['Flag', sort_val], ascending=[False, True], inplace=True)
-
-        # drop done column
-        df.drop('Done', axis=1, inplace=True)
-
-        # convert flag column
-        df['Flag'] = df['Flag'].astype(str)
-        df['Flag'] = df['Flag'].str.replace('3','LATE')
-        df['Flag'] = df['Flag'].str.replace('2','Active')
-        df['Flag'] = df['Flag'].str.replace('1','Inactive')
+        df.sort_values(['Day','Time'], ascending=[True, True], inplace=True)
+        df.drop('Done', axis=1, inplace=True) # drop done column
 
         # Unique code for normal events
         df['Diff'] = df['Day'].apply(gen_date_difference, args=(date_str,))
+        df['Flag'] = df['Diff'].apply(gen_flag, args=(date_str,))
+        df['Flag'] = df['Flag'].replace('nan','')
 
-        self.df_hr = df.copy()
+        self.df_hr = df.copy()[['Flag','Diff','Day','Time','Item']]
 
-class birthday_table(normal_table):
     def __init__(self, df, df_name, file_name, date_str):
         self.df = df; self.df_name = df_name; self.file_name = file_name; self.date_str = date_str
-        self.table_type = 'Birthday Table'
-        self.clean_cols = []
+        self.table_type = 'Event Table'
+        self.clean_cols = [['Day','weekday'],['Time','time']]
+
+        # sort for writing later
+        self.sort_data()
+
+        # create human readable data
+        self.filter_data()
+        self.process_data()
+        self.clean_data()
+        self.finalize_data()
+
+class birthday_table(normal_table):
 
     def sort_data(self):
         self.df_sorted = self.df.sort_values('Day', ascending=True)
@@ -325,69 +323,168 @@ class birthday_table(normal_table):
 
         self.df_hr = df.copy()
 
+    # add and drop needed columns from dataframe
     def process_data(self):
-
         df = self.df_hr.copy()
         date_str = self.date_str
 
-        # add flag column
-        flag_list = []
-        for idx, row in df.iterrows():
-
-            start_date = row['Day']
-
-            if date_str == start_date:
-                flag_string = 2
-            elif date_str > start_date:
-                flag_string = 3
+        def gen_flag(diff_str, current_date):
+            if diff_str < 0:
+                out_str = 'PAST'
+            elif diff_str == 0:
+                out_str = 'TODAY'
             else:
-                flag_string = 1
+                out_str = ''
 
-            flag_list.append(flag_string)
+            return out_str
 
-        flag_series = pd.Series(flag_list, dtype='object')
-
-        #flag_series = df.apply(add_flag_custom, axis=1)
         df.reset_index(drop=True, inplace=True)
-        df.insert(0, 'Flag', pd.DataFrame(flag_series))
-        #df.sort_values('Flag', ascending=False, inplace=True)
 
-        # convert flag column
-        df['Flag'] = df['Flag'].astype(str)
-        df['Flag'] = df['Flag'].str.replace('3','Past')
-        df['Flag'] = df['Flag'].str.replace('2','TODAY!')
-        df['Flag'] = df['Flag'].str.replace('1','')
+        df.sort_values(['Day'], ascending=True, inplace=True)
 
-        self.df_hr = df.copy()
-
-    def clean_data(self):
-        df = self.df_hr.copy()
-        date_str = self.date_str
-        
+        # Unique code for normal events
         df['Diff'] = df['Day'].apply(gen_date_difference, args=(date_str,))
-        df['Day'] = df['Day'].apply(gen_date_string_yymmdd)
+        df['Flag'] = df['Diff'].apply(gen_flag, args=(date_str,))
+        df['Flag'] = df['Flag'].replace('nan','')
 
-        self.df_hr = df[['Day','Name','Flag','Diff']].copy()
+        self.df_hr = df.copy()[['Flag','Diff','Day','Name']]
 
-class bills_table(normal_table):
     def __init__(self, df, df_name, file_name, date_str):
         self.df = df; self.df_name = df_name; self.file_name = file_name; self.date_str = date_str
-        self.table_type = 'Bills Table'
-        self.clean_cols = [['Start','mmmdd'],['End','mmmdd']]
+        self.table_type = 'Birthday Table'
+        self.clean_cols = [['Day','weekday']]
 
+        # sort for writing later
+        self.sort_data()
+
+        # create human readable data
+        self.filter_data()
+        self.process_data()
+        self.clean_data()
+        self.finalize_data()
+
+class bills_table(normal_table):
     def sort_data(self):
         self.df_sorted = self.df.sort_values(['Due'], ascending=True)
         self.df_hr = self.df_sorted.copy()
 
+    def process_data(self):
+        df = self.df_hr.copy()
+        date_str = self.date_str
+        date_obj = convert_date(date_str)
+
+        year_str = str(date_obj.year)[2:]
+        month_str = date_obj.month
+
+        def gen_flag(diff_str, current_date):
+            if diff_str < 0:
+                out_str = 'PAST DUE'
+            elif diff_str == 0:
+                out_str = 'TODAY'
+            else:
+                out_str = ''
+
+            return out_str
+
+        if self.df_name == '[Bills Yearly]':
+            df['Current_Due'] = year_str + df['Due']
+            #df['Due'] = year_str + df['Due']
+
+            for idx, row in df.iterrows():
+
+                if int(row['Last']) >= int(year_str + row['Due']): # is the bill paid?
+                    year_str = str(int(date_obj.year) + 1)[2:]
+                    df.loc[idx,'Due'] = year_str + row['Due']
+                else: # if not the bill is due in the current year
+                    year_str = str(int(date_obj.year))[2:]
+                    df.loc[idx,'Due'] = year_str + row['Due']
+
+                year_str = str(date_obj.year)[2:]
+                month_str = date_obj.month
+
+            # drop done column
+            df.drop('Current_Due', axis=1, inplace=True)
+
+        elif self.df_name == '[Bills Auto]':
+            df['Last'] = year_str + str(month_str).zfill(2) + df['Due']
+
+            month_str += 1
+            if month_str > 12:
+                month_str = 1
+
+            df['Due'] = year_str + str(month_str).zfill(2) + df['Due']
+
+            #month_str = str(month_str).zfill(2)
+            #df['Due'] = year_str + month_str + df['Due']
+
+        elif self.df_name == '[Bills Monthly]':
+            #df['Last'] = year_str + str(month_str).zfill(2) + df['Due']
+            df['Last_Due'] = year_str + str(month_str).zfill(2) + df['Due']
+
+            month_str += 1
+            if month_str > 12:
+                month_str = 1
+
+            month_str = str(month_str).zfill(2)
+            #df['Due'] = year_str + month_str + df['Due']
+            df['Due'] = year_str + str(month_str).zfill(2) + df['Due']
+
+            for idx, row in df.iterrows():
+                last_paid = row['Last']
+                last_due = row['Last_Due']
+
+                if last_paid < last_due:
+                    df.loc[idx, 'Due'] = last_due
+
+        else: # bills monthly, bills auto
+            #df['Last'] = year_str + str(month_str).zfill(2) + df['Due']
+
+            month_str += 1
+            if month_str > 12:
+                month_str = 1
+
+            month_str = str(month_str).zfill(2)
+            df['Due'] = year_str + month_str + df['Due']
+
+        df.reset_index(drop=True, inplace=True)
+        df.sort_values('Due', ascending=True, inplace=True)
+
+        # Unique code for normal events
+        df['Diff'] = df['Due'].apply(gen_date_difference, args=(date_str,))
+        df['Flag'] = df['Diff'].apply(gen_flag, args=(date_str,))
+        df['Flag'] = df['Flag'].replace('nan','')
+
+        # alter date
+        #df['Due'] = df['Due'].apply(gen_date_string_yymmdd)
+        df['Due'] = df['Due'].apply(date_mmmdd)
+        df['Last Paid'] = df['Last'].apply(date_mmmdd)
+
+        df['Amt'] = '$' + df['Amt']
+        df = df[['Flag','Diff','Due','Last Paid','Item','Amt']]
+
+        self.df_hr = df.copy()
+
+    def __init__(self, df, df_name, file_name, date_str):
+        self.df = df; self.df_name = df_name; self.file_name = file_name; self.date_str = date_str
+        self.table_type = 'Bills Table'
+
+        # sort for writing later
+        self.sort_data()
+        self.process_data()
+
 class weekly_event_table(normal_table):
+
+    def sort_data(self):
+        self.df_sorted = self.df.sort_values(['Start'], ascending=True)
+        self.df_hr = self.df_sorted.copy()
+
     def __init__(self, df, df_name, file_name, date_str):
         self.df = df; self.df_name = df_name; self.file_name = file_name; self.date_str = date_str
         self.table_type = 'Weekly Event Table'
         self.clean_cols = [['Start','mmmdd'],['End','mmmdd']]
 
-    def sort_data(self):
-        self.df_sorted = self.df.sort_values(['Start'], ascending=True)
-        self.df_hr = self.df_sorted.copy()
+        # sort for writing later
+        self.sort_data()
 
 # print data from specific dataframe
 def get_raw_data(df_name, available_dfs, df_dict):
@@ -397,8 +494,13 @@ def get_raw_data(df_name, available_dfs, df_dict):
     return df_out
 
 # generate table string
-def table_string(df, format_str='plain'):
-    return tabulate(df, showindex=False, tablefmt=format_str)
+def table_string(df, format_str='plain'): # simple plain
+
+    if df.shape[1] == 1 and df.shape[0] == 1 and df.iloc[0,0] == 'None': # df.shape[1] == 1 or
+        return 'None' #tabulate(pd.DataFrame(['None']), showindex=False, tablefmt=format_str)
+
+    #return tabulate(df, showindex=False, tablefmt=format_str)
+    return tabulate(df, headers="keys", showindex=False, tablefmt=format_str)
 
 # print dataframe using tabulate
 def table_print(df):
@@ -446,15 +548,17 @@ def gen_date_difference(date_str, current_date_str):
     date_obj_2 = datetime.datetime.strptime(current_date_str, '%y%m%d')
     return (date_obj_1 - date_obj_2).days
 
-def print_date_string(date_str, append_string = '', user_name=user_name):
+def print_date_string(input_string):
     #now = datetime.datetime.now() - datetime.timedelta(hours=5)
-    out_string = gen_date_string_yymmdd(date_str)
-    out_string += append_string
-    out_string = '-'*len(out_string) + '\n' + out_string + '\n' + '-'*len(out_string)
+    #out_string = ''
+    #out_string += append_head
+    #out_string += gen_date_string_yymmdd(date_str)
+    #out_string += append_tail
+    out_string = '-'*len(input_string) + '\n' + input_string + '\n' + '-'*len(input_string)
     return out_string
 
-def print_date(date_str, append_string = '', user_name=user_name):
-    out_string = print_date_string(date_str, append_string)
+def print_date(input_string):
+    out_string = print_date_string(input_string)
     #out_string = 'Schedule Assistant for ' + user_name + ':' + '\n' + out_string
     print(out_string)
 
@@ -665,7 +769,7 @@ def load_data_normal(text_file_list, data_folder):
         df_data.columns = df_header
 
         return [df_title, df_data]
-        
+
     df_dict = {}
     for i in text_file_list:
         df_dict[i] = pop_dict(i, data_folder)
@@ -687,9 +791,10 @@ def get_dfs(df_dict):
 
 # function to write sorted data to files
 def write_sorted_data(available_dfs, processed_dict):
-    file_list = available_dfs['filename'].sort_values().drop_duplicates().to_list()
+
+    file_list = available_dfs['filename'].sort_values().drop_duplicates().tolist()
     for file_name in file_list:
-        table_list = available_dfs[available_dfs['filename']==file_name]['dataframe'].to_list()
+        table_list = available_dfs[available_dfs['filename']==file_name]['dataframe'].tolist()
         output_string = ''
         for table_name in table_list: # file name
             mid_obj = processed_dict.get(table_name)
@@ -724,7 +829,7 @@ print('loading data...')
 current_date_str = current_date()
 
 # load tomorrowpad file
-tomorrow_pad_name = '01_tomorrowpad.txt'
+tomorrow_pad_name = '00_tomorrowpad.txt'
 tomorrowpad_dict = load_data_tomorrowpad(tomorrow_pad_name, data_folder)
 
 # load dataframes in text files
@@ -747,9 +852,9 @@ for idx, row in available_dfs.iterrows():
 
     # get current table
     df_mid = df_dict.get(file_name).get(df_name)
-    
+
     # apply correct table class given df information
-    table_obj = create_table(df_mid, df_name, file_name, current_date_str)    
+    table_obj = create_table(df_mid, df_name, file_name, current_date_str)
 
     # add to dictionary
     processed_dict[table_obj.df_name] = table_obj
@@ -760,13 +865,19 @@ write_sorted_data(available_dfs, processed_dict)
 main_dict = {'tomorrowpad_obj': tomorrowpad_obj,
              'df_dict': df_dict,
              'available_dfs': available_dfs,
-	     'table objects': processed_dict}
+	         'table objects': processed_dict}
 
 # print normal data
 def execute_print_normal(main_dict, date_str):
     table_objects = main_dict.get('table objects')
     tomorrowpad_obj = main_dict.get('tomorrowpad_obj')
+    date_str_output = gen_date_string_yymmdd(date_str)
 
+    # bills df
+    bills_df = pd.concat([table_objects.get('[Bills Monthly]').df_hr, table_objects.get('[Bills Yearly]').df_hr, table_objects.get('[Bills Auto]').df_hr])
+    bills_df = bills_df.sort_values('Diff')
+
+    # birthday df
     birthday_df = table_objects.get('[Scheduled Birthdays]').df_hr
     birthday_hbd_index = birthday_df[birthday_df['Name'].str.endswith('| HBD')].index
     birthday_df1 = birthday_df.loc[birthday_hbd_index]
@@ -774,23 +885,32 @@ def execute_print_normal(main_dict, date_str):
 
     clear()
     print('Schedule Assistant for ' + user_name)
+    #print(''); print(birthday_df1) # [['Day','Name','Flag']]
+    #print('')
+
+    print('\nLatest Tomorrowpads: ' + ', '.join(tomorrowpad_obj.padkeys()[0:5]))
     print('Today\'s Pad: ' + date_str); table_print(tomorrowpad_obj.padprint())
-    print(''); print(birthday_df1) # [['Day','Name','Flag']]
 
     print('')
-    print_date(date_str, ' | Normal Tasks:')
-    print('\nLatest Tomorrowpads: ' + ', '.join(tomorrowpad_obj.padkeys()[0:5]))
+    print_date('Normal Events | ' + date_str_output + ':')
     print('\nNormal Events:'); table_print(table_objects.get('[Normal Events]').df_hr) # [['Day','Time','Item','Flag']]
-    print('\nScheduled Holidays:'); print(table_objects.get('[Scheduled Holidays]').df_hr) # [['Day','Name','Flag']]
+    print('\nScheduled Holidays:'); table_print(table_objects.get('[Scheduled Holidays]').df_hr) # [['Day','Name','Flag']]
+    print('\nScheduled Birthdays:'); table_print(birthday_df) # [['Day','Name','Flag']]
+
+    print('')
+    print_date('Normal Tasks | ' + date_str_output + ':')
+    print('\nBills:'); table_print(bills_df)
     print('\nNormal Tasks:'); table_print(table_objects.get('[Normal Tasks]').df_hr)
-    print('\nScheduled Birthdays:'); print(birthday_df) # [['Day','Name','Flag']]
+    print('\nTo Do List:'); table_print(table_objects.get('[To Do List]').df_hr)
 
     print_commands()
 
 def execute_print_school(main_dict, date_str):
     table_objects = main_dict.get('table objects')
+    date_str_output = gen_date_string_yymmdd(date_str)
+
     clear(); print('')
-    print_date(date_str, ' | School Tasks:')
+    print_date('School Tasks |' + date_str_output + ':')
     print('\nSchool Alerts:'); table_print(table_objects.get('[School Alerts]').df_hr)
     print('\nSchool Exams:'); table_print(table_objects.get('[School Exams]').df_hr)
     print('\nSchool Homework:'); table_print(table_objects.get('[School Homework]').df_hr)
@@ -801,37 +921,63 @@ def execute_print_school(main_dict, date_str):
 def execute_html_message(main_dict, date_str):
     table_objects = main_dict.get('table objects')
     tomorrowpad_obj = main_dict.get('tomorrowpad_obj')
+    date_str_output = gen_date_string_yymmdd(date_str)
 
+    # bills df
+    bills_df = pd.concat([table_objects.get('[Bills Monthly]').df_hr, table_objects.get('[Bills Yearly]').df_hr, table_objects.get('[Bills Auto]').df_hr])
+    bills_df = bills_df.sort_values('Diff')
+    bills_df1 = bills_df[bills_df['Diff']<=10]
+
+    # birthday df
     birthday_df = table_objects.get('[Scheduled Birthdays]').df_hr
     birthday_hbd_index = birthday_df[birthday_df['Name'].str.endswith('| HBD')].index
     birthday_df1 = birthday_df.loc[birthday_hbd_index]
     birthday_df1.loc[:,'Name'] = birthday_df1['Name'].str[:~5]
 
-    out_string = 'Schedule Assistant for ' + user_name + ':'
+    # Attachment
+    out_string = 'Schedule Report for ' + user_name + ':'
 
-    out_string += '\n' + print_date_string(date_str, ' | Normal Tasks:')
-    out_string += '\n\nLatest Tomorrowpads: ' + ', '.join(tomorrowpad_obj.padkeys()[0:5])
-    out_string += '\nToday\'s Pad: ' + date_str; out_string += '\n' + table_string(tomorrowpad_obj.padprint())
-    out_string += '\n\nNormal Tasks:'; out_string += '\n' + table_string(table_objects.get('[Normal Tasks]').df_hr)
-    out_string += '\n\nNormal Events:'; out_string += '\n' + table_string(table_objects.get('[Normal Events]').df_hr) # [['Day','Time','Item','Flag']]
-    out_string += '\n\nScheduled Holidays:'; out_string += '\n' + table_string(table_objects.get('[Scheduled Holidays]').df_hr) # [['Day','Name','Flag']]
-    out_string += '\n\nScheduled Birthdays:'; out_string += '\n' + table_string(birthday_df) # [['Day','Name','Flag']]
+    out_string += '\n\nToday\'s Pad: ' + date_str
+    out_string += ' | Latest Tomorrowpads: ' + ', '.join(tomorrowpad_obj.padkeys()[0:5])
+    out_string += '\n[Tomorrowpad]'; out_string += '\n' + table_string(tomorrowpad_obj.padprint())
+    out_string += '\n\n[Normal Focus]'; out_string += '\n' + table_string(table_objects.get('[Normal Focus]').df_hr)
+    out_string += '\n\n' + print_date_string('Normal Events | ' + date_str_output + ':')
+    out_string += '\n\n[Normal Events]'; out_string += '\n' + table_string(table_objects.get('[Normal Events]').df_hr) # [['Day','Time','Item','Flag']]
+    out_string += '\n\n[Scheduled Holidays]'; out_string += '\n' + table_string(table_objects.get('[Scheduled Holidays]').df_hr) # [['Day','Name','Flag']]
+    out_string += '\n\n[Scheduled Birthdays]'; out_string += '\n' + table_string(birthday_df) # [['Day','Name','Flag']]
 
-    out_string += '\n\n' + print_date_string(date_str, ' | School Tasks:')
-    out_string += '\n\nSchool Alerts:'; out_string += '\n' + table_string(table_objects.get('[School Alerts]').df_hr)
-    out_string += '\n\nSchool Exams:'; out_string += '\n' + table_string(table_objects.get('[School Exams]').df_hr)
-    out_string += '\n\nSchool Homework:'; out_string += '\n' + table_string(table_objects.get('[School Homework]').df_hr)
-    out_string += '\n\nSchool Reading:'; out_string += '\n' + table_string(table_objects.get('[School Reading]').df_hr)
+    out_string += '\n\n' + print_date_string('Normal Tasks | ' + date_str_output + ':')
+    out_string += '\n\n[Bills]'; out_string += '\n' + table_string(bills_df)
+    out_string += '\n\n[Normal Tasks]'; out_string += '\n' + table_string(table_objects.get('[Normal Tasks]').df_hr)
+    out_string += '\n\n[To Do List]'; out_string += '\n' + table_string(table_objects.get('[To Do List]').df_hr)
+    out_string += '\n\n[To Do Buy]'; out_string += '\n' + table_string(table_objects.get('[To Do Buy]').df_hr)
+    out_string += '\n\n[To Do Groceries]'; out_string += '\n' + table_string(table_objects.get('[To Do Groceries]').df_hr)
 
-    writeFile = open('summary.txt', 'w')
+    out_string += '\n\n' + print_date_string('School Tasks | ' + date_str_output + ':')
+    out_string += '\n\n[School Alerts]'; out_string += '\n' + table_string(table_objects.get('[School Alerts]').df_hr)
+    out_string += '\n\n[School Exams]'; out_string += '\n' + table_string(table_objects.get('[School Exams]').df_hr)
+    out_string += '\n\n[School Homework]'; out_string += '\n' + table_string(table_objects.get('[School Homework]').df_hr)
+    out_string += '\n\n[School Reading]'; out_string += '\n' + table_string(table_objects.get('[School Reading]').df_hr)
+
+    writeFile = open(os.path.join(os.path.split(os.path.abspath(__file__))[0],'summary.txt'), 'w')
     writeFile.write(out_string)
     writeFile.close()
 
+    # Email Body
     out_string = ''
-    out_string += '\n\n<b>Normal Events:</b>'; out_string += '\n' + table_string(table_objects.get('[Normal Events]').df_hr)
-    out_string += '\n\n' + '<b>Birthdays:</b>' + '\n' + table_string(birthday_df1)
+    #out_string += '\n\n' + '<b>Tomorrowpad:</b>' + '\n' + table_string(tomorrowpad_obj.padprint(), 'plain')
+    #out_string += '\n\n<b>Normal Small Tasks:</b>'; out_string += '\n' + table_string(table_objects.get('[Normal Small Tasks]').df_hr, 'plain')
 
-    writeFile = open('summary_email.txt', 'w')
+    out_string += '\n\n' + '<b>Focus Goal:</b>' + '\n' + table_string(table_objects.get('[Normal Focus]').df_hr, 'plain')
+    out_string += '\n\n' + '<b>Bills:</b>' + '\n' + table_string(bills_df1, 'plain')
+    out_string += '\n\n' + '<b>Birthdays:</b>' + '\n' + table_string(birthday_df1, 'plain')
+    out_string += '\n\n<b>Normal Events:</b>'; out_string += '\n' + table_string(table_objects.get('[Normal Events]').df_hr, 'plain')
+
+    #out_string += '\n\n[Normal Events]'; out_string += '\n' + table_string(table_objects.get('[Normal Events]').df_hr, 'plain')
+    #out_string += '\n\n' + '[Birthdays]' + '\n' + table_string(birthday_df1, 'plain')
+    #out_string += '\n\n' + '[Bills]' + '\n' + table_string(bills_df1, 'plain')
+
+    writeFile = open(os.path.join(os.path.split(os.path.abspath(__file__))[0],'summary_email.txt'), 'w')
     writeFile.write(out_string)
     writeFile.close()
 

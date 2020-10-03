@@ -10,8 +10,8 @@ schedule.html_message()
 import schedule_email_data
 
 # SELECT MODE
-message_dict = schedule_email_data.email_test # TEST MODE
-#message_dict = schedule_email_data.email_dict # PRODUCTION MODE
+#message_dict = schedule_email_data.email_test # TEST MODE
+message_dict = schedule_email_data.email_dict # PRODUCTION MODE
 
 # Using SendGrid's Python Library
 # https://www.twilio.com/blog/sending-email-attachments-with-twilio-sendgrid-python
@@ -36,7 +36,7 @@ for email in email_list:
     subject=mid_dict.get('subject'),
     html_content=mid_dict.get('email_text'))
 
-    with open(r'summary.txt', 'rb') as f:
+    with open(os.path.join(os.path.split(os.path.abspath(__file__))[0], 'summary.txt'), 'rb') as f:
         data = f.read()
         f.close()
     encoded_file = base64.b64encode(data).decode()
